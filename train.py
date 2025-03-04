@@ -257,13 +257,18 @@ def exe_test(testf, device, cfg):
     model = AutoModelForSeq2SeqLM.from_pretrained(modelcheckpoint, local_files_only=True,\
                                                 torch_dtype=torch.bfloat16 if cfg.bfloat16 else torch.float32)
     
-    model.parallelize()
-    
+    # Only parallelize if CUDA is available
+    if torch.cuda.is_available():
+        model.parallelize()
+    else:
+        model = model.to(device)
+
     # load string for inference
     input_str = ["discourse parsing: " + item for item in data_test["dialogue"]]
     
     tokenized_test = tokenizer(input_str,
-                                padding="max_length", 
+                                # padding="max_length",  # TODO: Ask Lisa
+                                padding=True,
                                 truncation=True, 
                                 return_tensors="pt"
                                 ).input_ids.to(device)
@@ -279,9 +284,10 @@ def exe_test(testf, device, cfg):
         
     # predict_results = model.generate(tokenized_test, max_new_tokens=max_infer_len) # if VRAM big enough, batch decode
     # decoded_preds = tokenizer.batch_decode(predict_results, skip_special_tokens=True)
-    for txt in tokenized_test: #if VRAM OOM, predict example one by one
+    for idx, txt in enumerate(tokenized_test): #if VRAM OOM, predict example one by one
         predict_result = model.generate(input_ids=txt.unsqueeze(0), max_new_tokens=max_infer_len)
-        decoded_preds.append(tokenizer.decode(predict_result[0], skip_special_tokens=True))   
+        decoded_preds.append(tokenizer.decode(predict_result[0], skip_special_tokens=True))  
+        print(f"Predicted {idx+1} out of {len(tokenized_test)}")
                           
     # log prediction
     outfile_name = f"{cfg.t5_family}-{cfg.model_size}_train_{cfg.train_corpus}_test_{cfg.test_corpus}_{cfg.structure_type}_seed{cfg.seed}_gen{max_infer_len}_lr{cfg.lr}.jsonl"
@@ -316,6 +322,7 @@ if __name__=="__main__":
     parser.add_argument("--batchsize", type=int, default=4, help="t0-3b: 4, flan-t5-base and large: 8")  
     parser.add_argument("--step", type=int, default=2000, help="2000 for molweni transition-based (focus, natural2) | 500 for all else")  
     parser.add_argument("--seed", type=int, default=27, help="seed: 27, 16, etc")
+    parser.add_argument("--cpu", action="store_true", default=False, help="Force CPU usage")
     args = parser.parse_args()
     
     train_corpus = args.train_corpus 
@@ -338,8 +345,14 @@ if __name__=="__main__":
     devf = f"{ROOT_DIR}/data/{train_corpus}_{structure_type}_dev.jsonl" 
     testf = f"{ROOT_DIR}/data/{test_corpus}_{structure_type}_test.jsonl" 
 
-    use_cuda = torch.cuda.is_available()
+    # Modify device selection to respect --cpu flag
+    use_cuda = torch.cuda.is_available() and not args.cpu
     device = torch.device("cuda" if use_cuda else "cpu")
+    
+    if device.type == "cpu":
+        print("Running on CPU")
+    else:
+        print(f"Running on GPU: {torch.cuda.get_device_name(0)}")
     
     set_seed(seed=args.seed)
     

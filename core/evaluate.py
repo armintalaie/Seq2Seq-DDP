@@ -14,7 +14,7 @@ def evaluate_gen_result(fted_model, train_corpus='stac', test_corpus='stac', \
     """Evaluate end2end generation"""
     
     genf = f"generation/{fted_model}_train_{train_corpus}_test_{test_corpus}_{structure_type}_seed{seed}_gen{max_infer_len}_lr{lr}.jsonl"
-    goldf = f"data/{test_corpus}_{structure_type}_test.json"
+    goldf = f"data/{test_corpus}_{structure_type}_test.jsonl"
            
     # read predictions
     predictions = []
@@ -94,7 +94,18 @@ def evaluate_gen_result(fted_model, train_corpus='stac', test_corpus='stac', \
             miss_edu = False
             under_len = -1
             for ip, trip in enumerate(p_triplets):
-                head_id = int(trip[0][1:-1].split('edu')[1])
+                if ip == 1:
+                    print(trip)
+                head_id = -1
+                try:
+                    # TODO: Ask Lisa: why this line is not working? - perhaps cause of t5-base?
+                    # Fail example:
+                    # ('[edu0]', 'Comment', '[edu0]')
+                    # ('Stretch', 'Comment', '[edu0]')
+                    head_id = int(trip[0][1:-1].split('edu')[1])
+                except:
+                    print(trip)
+                    continue
                 if head_id <= max_g_edu: #post2: edu length constraint
                     clean_p_triplets.append(trip)
                     clean_P_link += 1
@@ -393,11 +404,13 @@ if __name__=='__main__':
         max_infer_len=1024
     else:
         max_infer_len=512
-        
-    evaluate_gen_result(fted_model, train_corpus=train_corpus, test_corpus=test_corpus, \
-                        structure_type=structure_type, max_infer_len=max_infer_len, seed=seed, lr=lr)
-    
 
-    evaluate_transition_result(fted_model, train_corpus=train_corpus, test_corpus=test_corpus, \
-                            structure_type=structure_type, max_infer_len=max_infer_len, seed=seed, lr=lr)
+    if structure_type in ['natural', 'labelmasked', 'augmented']:
+        evaluate_gen_result(fted_model, train_corpus=train_corpus, test_corpus=test_corpus, \
+                        structure_type=structure_type, max_infer_len=max_infer_len, seed=seed, lr=lr)
+    elif structure_type in ['focus', 'natural2']:
+        evaluate_transition_result(fted_model, train_corpus=train_corpus, test_corpus=test_corpus, \
+                        structure_type=structure_type, max_infer_len=max_infer_len, seed=seed, lr=lr)
+    else:
+        raise ValueError(f"Invalid structure type: {structure_type}")
     
